@@ -5,11 +5,16 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config
 
 # === CONFIG ===
-DATA_DIR         = r'C:/Users/reyno/Desktop/Quant Finance Skyblock/Data/Processed'
-DB_PATH          = os.path.join(DATA_DIR, 'bazaar.db')
-OUTPUT_CSV       = os.path.join(DATA_DIR, 'improved_normalized_labeled.csv')
+DATA_DIR         = str(config.PROCESSED_DIR)
+DB_PATH          = str(config.DB_PATH)
+OUTPUT_CSV       = str(config.PROCESSED_CSV)
 ITEM_TO_PLOT     = 'GRIFFIN_FEATHER'  
 # long windows in minutes (hourly+ trends)
 LONG_WINDOWS     = [60, 120, 240, 480]    # 1h, 2h, 4h, 8h

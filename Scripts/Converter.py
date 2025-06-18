@@ -1,10 +1,15 @@
 import os
 import sqlite3
 import pandas as pd
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config
 
 # === CONFIG ===
-DATA_DIR    = r'C:/Users/reyno/Desktop/Quant Finance Skyblock/Data'
-DB_PATH     = os.path.join(DATA_DIR, 'bazaar.db')
+DATA_DIR    = str(config.DATA_DIR)
+DB_PATH     = str(config.DB_PATH)
 OLD_CSV     = os.path.join(DATA_DIR, 'old_history.csv')  # your existing long CSV
 
 # Fields must exactly match your old CSV’s column names

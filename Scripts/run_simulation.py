@@ -3,11 +3,15 @@ import pandas as pd
 import numpy as np
 import argparse
 import os
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config
 
 # === Default Paths ===
-base_dir = os.path.dirname(os.path.dirname(__file__))  # go up from Scripts/
-load_data_path_default = os.path.join(base_dir, "Data", "xgb_predictions.csv")
-save_data_path_default = os.path.join(base_dir, "Outputs", "trade_log.csv")
+load_data_path_default = str(config.PREDICTIONS_CSV)
+save_data_path_default = str(config.OUTPUTS_DIR / "trade_log.csv")
 print(f"Default paths: {load_data_path_default}, {save_data_path_default}")
 
 def run_backtest(df_sim,
