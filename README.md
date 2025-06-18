@@ -3,8 +3,8 @@
 This repository analyzes Hypixel Bazaar data in order to research trading strategies driven by machine learning.
 
 ## Project Goals
-
-*(Add high level goals here)*
+Use machine learning to generate a trading strategy that is profitable over the medium term while being hands off
+Similarly generate short term aritrage strategy for active management
 
 ## Repository Layout
 
