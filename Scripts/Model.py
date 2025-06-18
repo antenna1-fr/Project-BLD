@@ -4,6 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xgboost as xgb
 import gc
+import sys
+from pathlib import Path
+
+# project configuration
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config
 
 from sklearn.model_selection import TimeSeriesSplit,GridSearchCV,train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -15,11 +21,11 @@ from xgboost import XGBClassifier
 from sklearn.metrics import make_scorer, f1_score
 
 # === CONFIG ===
-CSV_PATH       = r'C:/Users/reyno/Desktop/Quant Finance Skyblock/Data/Processed/improved_normalized_labeled.csv'
+CSV_PATH       = str(config.PROCESSED_CSV)
 TEST_SIZE      = 0.20
 RANDOM_STATE   = 42
-OUTPUT_PLOT    = r'C:/Users/reyno/Desktop/Quant Finance Skyblock/Model_Quality/confusion_matrix_xgbcv.png'
-OUTPUT_PREDICTIONS = r'C:/Users/reyno/Desktop/Quant Finance Skyblock/Data/xgb_predictions.csv'
+OUTPUT_PLOT    = str(config.CONFUSION_MATRIX_PLOT)
+OUTPUT_PREDICTIONS = str(config.PREDICTIONS_CSV)
 
 # -----------------------------------------------------------------------------
 # 1) LOAD & PREPARE DATA

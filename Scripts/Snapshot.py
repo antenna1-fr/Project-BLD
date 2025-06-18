@@ -4,11 +4,15 @@ import sqlite3
 import requests
 import signal
 import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config
 
 # === CONFIG ===
 API_KEY           = ''  # ← your Hypixel API key
-DATA_DIR          = r'C:/Users/reyno/Desktop/Quant Finance Skyblock/Data/Raw'
-DB_PATH           = os.path.join(DATA_DIR, 'bazaar.db')
+DATA_DIR          = str(config.RAW_DIR)
+DB_PATH           = str(config.DB_PATH)
 INTERVAL_SECONDS  = 60    # fetch every 60 seconds
 MA_WINDOW_SECONDS = 60 * 60 * 24 * 7   # 1 week
 VOL_WINDOW        = 5                    # last 5 samples
