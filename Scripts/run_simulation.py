@@ -11,7 +11,7 @@ import config
 
 # === Default Paths ===
 load_data_path_default = str(config.PREDICTIONS_CSV)
-save_data_path_default = str(config.OUTPUTS_DIR / "trade_log.csv")
+save_data_path_default = str(config.TRADE_LOG_CSV)
 print(f"Default paths: {load_data_path_default}, {save_data_path_default}")
 
 def run_backtest(df_sim,
