@@ -1,0 +1,7 @@
+pandas
+numpy
+matplotlib
+scikit-learn
+xgboost
+gymnasium
+stable-baselines3
