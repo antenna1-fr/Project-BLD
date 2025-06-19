@@ -19,69 +19,84 @@ def run_backtest(df_sim,
                  min_trade_amount=75_000,
                  min_trade_pct=0.02,
                  exit_profit_threshold=0.03):
-    capital = initial_capital
-    inventory = []
-    trade_log = []
+    """Backtest trades in time order respecting item identity."""
 
-    for i in range(len(df_sim)):
-        row = df_sim.iloc[i]
+    capital = initial_capital
+    inventory = []  # open positions [{'item', 'entry_time', 'entry_price', 'size', 'confidence'}]
+    trade_log = []
+    last_seen = {}
+
+    df_sim = df_sim.sort_values('timestamp').reset_index(drop=True)
+    df_sim['time_group'] = (df_sim['timestamp'] // 60).astype(int)
+
+    current_group = None
+    trades_this_period = 0
+
+    for _, row in df_sim.iterrows():
+        ts_group = row['time_group']
+        if current_group != ts_group:
+            current_group = ts_group
+            trades_this_period = 0
+
+        item = row['item']
         price = row['mid_price']
         pred = row['pred_label']
         ts = row['timestamp']
+        last_seen[item] = (price, ts)
 
-        # === Exit Logic ===
-        still_open = []
+        # === Exit Logic only for positions of this item ===
+        updated_inventory = []
         for pos in inventory:
-            held_return = (price - pos['entry_price']) / pos['entry_price']
-
-            # Exit only if profit target hit or a SELL signal occurs
-            should_exit = (
-                held_return >= exit_profit_threshold or
-                pred == -1
-            )
-
-            if should_exit:
-                pnl = (price - pos['entry_price']) * pos['size']
-                capital += pos['size'] * price
-                trade_log.append({
-                    'entry_time': pos['entry_time'],
-                    'exit_time': ts,
-                    'entry_price': pos['entry_price'],
-                    'exit_price': price,
-                    'size': pos['size'],
-                    'pnl': pnl,
-                    'return': held_return,
-                    'confidence': pos['confidence']
-                })
+            if pos['item'] == item:
+                held_return = (price - pos['entry_price']) / pos['entry_price']
+                should_exit = (held_return >= exit_profit_threshold or pred == -1)
+                if should_exit:
+                    pnl = (price - pos['entry_price']) * pos['size']
+                    capital += pos['size'] * price
+                    trade_log.append({
+                        'item': item,
+                        'entry_time': pos['entry_time'],
+                        'exit_time': ts,
+                        'entry_price': pos['entry_price'],
+                        'exit_price': price,
+                        'size': pos['size'],
+                        'pnl': pnl,
+                        'return': held_return,
+                        'confidence': pos['confidence']
+                    })
+                else:
+                    updated_inventory.append(pos)
             else:
-                still_open.append(pos)
-        inventory = still_open
+                updated_inventory.append(pos)
+        inventory = updated_inventory
 
         # === Entry Logic (BUY only) ===
-        if pred == 1:
+        if pred == 1 and trades_this_period < 2:
             confidence = row['pred_proba_buy']
             cash_available = capital
             max_trade = min(min_trade_amount, cash_available * min_trade_pct)
             if max_trade >= min_trade_amount:
-                item_price = price
-                num_items = int(max_trade / item_price)
+                num_items = int(max_trade / price)
                 if num_items >= 1:
-                    cost = num_items * item_price
+                    cost = num_items * price
                     capital -= cost
                     inventory.append({
+                        'item': item,
                         'entry_time': ts,
-                        'entry_price': item_price,
+                        'entry_price': price,
                         'size': num_items,
                         'confidence': confidence
                     })
+                    trades_this_period += 1
 
     # === Final Exit for Remaining Positions ===
-    last_price = df_sim['mid_price'].iloc[-1]
-    last_time = df_sim['timestamp'].iloc[-1]
     for pos in inventory:
+        item = pos['item']
+        last_price, last_time = last_seen.get(item, (pos['entry_price'], pos['entry_time']))
         pnl = (last_price - pos['entry_price']) * pos['size']
         capital += pos['size'] * last_price
         trade_log.append({
+            'item': item,
             'entry_time': pos['entry_time'],
             'exit_time': last_time,
             'entry_price': pos['entry_price'],
@@ -97,8 +112,8 @@ def run_backtest(df_sim,
         "final_capital": capital,
         "total_profit": capital - initial_capital,
         "num_trades": len(trade_df),
-        "average_return": trade_df['return'].mean(),
-        "win_rate": (trade_df['pnl'] > 0).mean()
+        "average_return": trade_df['return'].mean() if len(trade_df) > 0 else 0,
+        "win_rate": (trade_df['pnl'] > 0).mean() if len(trade_df) > 0 else 0
     }
 
     return trade_df, summary
@@ -117,7 +132,7 @@ def main():
         raise FileNotFoundError(f" Could not find input file at: {load_path}")
 
     print(f" Loading predictions from: {load_path}")
-    df_sim = pd.read_csv(load_path, parse_dates=['timestamp'])
+    df_sim = pd.read_csv(load_path)
 
     trade_df, summary = run_backtest(df_sim)
 

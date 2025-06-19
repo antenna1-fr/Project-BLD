@@ -36,6 +36,11 @@ df = df.sort_values(['item', 'timestamp']).reset_index(drop=True)
 # Remove last 40 snapshots per item
 df = df.groupby('item').apply(lambda g: g.iloc[:-40] if len(g) > 40 else g.iloc[0:0]).reset_index(drop=True)
 df = df.sort_values('timestamp').reset_index(drop=True)
+
+# keep item labels for later use in the simulation
+item_series = df['item']
+
+# one-hot encode items for the model
 df = pd.get_dummies(df, columns=['item'], prefix='item')
 
 # define features & label
@@ -200,6 +205,7 @@ if 'mid_price' not in df.columns:
 # Match index with y_test
 df_sim = pd.DataFrame({
     'timestamp': df.iloc[y_test.index]['timestamp'].values,
+    'item': item_series.iloc[y_test.index].values,
     'mid_price': df.iloc[y_test.index]['mid_price'].values,
     'true_label': y_test.values,
     'pred_label': y_pred,
