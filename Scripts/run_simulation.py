@@ -18,7 +18,7 @@ def run_backtest(df_sim,
                  initial_capital=25_000_000,
                  min_trade_amount=75_000,
                  min_trade_pct=0.03,
-                 exit_profit_threshold=0.005):
+                 exit_profit_threshold=0.1):
     """Backtest trades in time order respecting item identity."""
 
     capital = initial_capital
