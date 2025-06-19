@@ -18,13 +18,16 @@ scripts can be executed without fetching new data.
 
 ## Getting Started
 
-1. Install Python requirements.
+1. Install Python requirements by running `bash setup.sh`.
 2. Review `config.py` and adjust any paths if you wish to store data elsewhere.
 3. Collect data with `Scripts/Snapshot.py` (requires your Hypixel API key).
 4. Prepare features with `Scripts/Data Preparer.py`.
 5. Train the XGBoost model using `Scripts/Model.py` which saves predictions to
    `Data/xgb_predictions.csv`.
 6. Backtest these predictions via `python Scripts/run_simulation.py`.
+7. Generate an RL-ready dataset using `python Scripts/prepare_rl_dataset.py`.
+8. Train the reinforcement learning agent with
+   `python Scripts/rl_train_template.py --timesteps 5000`.
 
 ## Configuration
 
@@ -46,4 +49,15 @@ directories.
 - Populate the SQLite database with a larger history of snapshots.
 - Tweak feature engineering and model parameters to improve profitability.
 - Consider more advanced strategies such as reinforcement learning.
+
+## Reinforcement Learning
+
+The project includes a Gymnasium environment (`Scripts/rl_env.py`) enabling
+training RL agents on historical data. Build the dataset with
+`prepare_rl_dataset.py` then train an agent with
+`rl_train_template.py`.  The trainer uses PPO and periodically evaluates the
+agent, saving the best model under `Outputs/rl_model.zip`.  The environment is
+kept simple so the repository can run quickly but it provides a solid base for
+experimentation.  The `setup.sh` script installs all necessary packages,
+including `gymnasium` and Stable-Baselines3.
 

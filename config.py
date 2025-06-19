@@ -20,3 +20,6 @@ PREDICTIONS_CSV = OUTPUTS_DIR / "xgb_predictions.csv"
 TRADE_LOG_CSV = TRADING_DIR / "trade_log.csv"
 CONFUSION_MATRIX_PLOT = MODEL_QUALITY_DIR / "confusion_matrix_xgbcv.png"
 
+# File used for RL training (processed features, no labels)
+RL_DATASET_CSV = PROCESSED_DIR / "rl_dataset.csv"
+
