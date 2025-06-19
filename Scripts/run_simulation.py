@@ -73,10 +73,16 @@ def run_backtest(df_sim,
         # === Entry Logic (BUY only) ===
         if pred == 1 and trades_this_period < 2:
             confidence = row['pred_proba_buy']
-            cash_available = capital
-            max_trade = min(min_trade_amount, cash_available * min_trade_pct)
-            if max_trade >= min_trade_amount:
-                num_items = int(max_trade / price)
+            if confidence < 0.6:
+                continue  # Ignore weak signals
+
+            # Exponential scaling of trade size based on confidence
+            alpha = 7  # You can tune this to be more/less aggressive
+            scaled_pct = ((confidence - 0.6) / 0.4) ** alpha
+            trade_budget = scaled_pct * capital
+
+            if trade_budget >= min_trade_amount:
+                num_items = int(trade_budget / price)
                 if num_items >= 1:
                     cost = num_items * price
                     capital -= cost
@@ -88,6 +94,7 @@ def run_backtest(df_sim,
                         'confidence': confidence
                     })
                     trades_this_period += 1
+
 
     # === Final Exit for Remaining Positions ===
     for pos in inventory:
