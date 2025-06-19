@@ -28,8 +28,16 @@ scripts can be executed without fetching new data.
 7. Generate an RL-ready dataset using `python Scripts/prepare_rl_dataset.py`.
 8. Train the reinforcement learning agent with
    `python Scripts/rl_train_template.py --timesteps 5000`.
+<<<<<< codex/set-up-architecture-for-rl-model
 9. Evaluate the trained agent via
    `python Scripts/evaluate_rl_model.py`.
+
+ xfh0n2-codex/set-up-architecture-for-rl-model
+9. Evaluate the trained agent via
+   `python Scripts/evaluate_rl_model.py`.
+
+ Reinforcement-Learning
+main
 
 ## Configuration
 
@@ -60,8 +68,17 @@ training RL agents on historical data. Build the dataset with
 `rl_train_template.py`.  The trainer uses PPO and periodically evaluates the
 agent, saving the best model under `Outputs/rl_model.zip`.  The environment is
 kept simple so the repository can run quickly but it provides a solid base for
+<<<<< codex/set-up-architecture-for-rl-model
+=======
+set-up-architecture-for-rl-model
+main
 experimentation.  After training, run `evaluate_rl_model.py` which leverages
 `run_simulation.py` to backtest the agent using the same trading logic as the
 baseline.  The `setup.sh` script installs all necessary packages, including
 `gymnasium` and Stable-Baselines3.
+codex/set-up-architecture-for-rl-model
+experimentation.  The `setup.sh` script installs all necessary packages,
+including `gymnasium` and Stable-Baselines3.
+Reinforcement-Learning
+main
 
