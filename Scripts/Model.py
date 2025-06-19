@@ -114,8 +114,8 @@ xgb_clf = XGBClassifier(
 
 # Define param grid
 param_grid = {
-    'learning_rate': [.12, .13],
-    'max_depth': [10,11],
+    'learning_rate': [.13, .14],
+    'max_depth': [11],
     'subsample': [.75],
     'colsample_bytree': [0.8],
     'n_estimators': [250]  # keep high for early stopping
