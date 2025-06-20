@@ -1,6 +1,5 @@
 # Ignore large files
-Data/Raw/
-Data/Processed/
+Data/
+
 #Ignore Outputs
-Outputs/Trading/
 Outputs/
