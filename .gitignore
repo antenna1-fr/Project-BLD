@@ -4,4 +4,4 @@ Data/Processed/
 #Ignore Outputs
 Outputs/
 # Ignore temporary files
-Scripts/__pycache__/
+**/__pycache__/config.cpython-313.pyc
