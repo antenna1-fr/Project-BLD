@@ -3,3 +3,6 @@ Data/
 
 #Ignore Outputs
 Outputs/
+
+# Ignore temporary files
+Scripts/_Pycache_/
