@@ -27,4 +27,6 @@ RL_TRADE_LOG_CSV = TRADING_DIR / "rl_trade_log.csv"
 
 # Trade log generated from RL agent evaluation
 RL_TRADE_LOG_CSV = TRADING_DIR / "rl_trade_log.csv"
+# Location to save the trained RL model
+RL_MODEL_PATH = OUTPUTS_DIR / "rl_model.zip"
 

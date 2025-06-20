@@ -13,7 +13,7 @@ Similarly generate short term aritrage strategy for active management
 - `Model_Quality/` – evaluation plots and diagnostics
 - `Outputs/` – model predictions and trade logs
 
-A small sample dataset is provided in `Data/Processed/Smaller processed data.csv` so the
+A small sample dataset is provided in `Data/Processed/improved_normalized_labeled.csv` so the
 scripts can be executed without fetching new data.
 
 ## Getting Started
@@ -36,6 +36,8 @@ scripts can be executed without fetching new data.
 
  Reinforcement-Learning
 main
+8. Train **and** evaluate the reinforcement learning agent using
+   `python Scripts/train_eval_rl.py --timesteps 5000`.
 
 ## Configuration
 
@@ -60,22 +62,12 @@ directories.
 
 ## Reinforcement Learning
 
-The project includes a Gymnasium environment (`Scripts/rl_env.py`) enabling
-training RL agents on historical data. Build the dataset with
-`prepare_rl_dataset.py` then train an agent with
-`rl_train_template.py`.  The trainer uses PPO and periodically evaluates the
-agent, saving the best model under `Outputs/rl_model.zip`.  The environment is
-kept simple so the repository can run quickly but it provides a solid base for
-set-up-architecture-for-rl-model
-
-main
-experimentation.  After training, run `evaluate_rl_model.py` which leverages
-`run_simulation.py` to backtest the agent using the same trading logic as the
-baseline.  The `setup.sh` script installs all necessary packages, including
-`gymnasium` and Stable-Baselines3.
-codex/set-up-architecture-for-rl-model
-experimentation.  The `setup.sh` script installs all necessary packages,
-including `gymnasium` and Stable-Baselines3.
-Reinforcement-Learning
-main
+Reinforcement learning uses a Gymnasium environment defined in
+`Scripts/train_eval_rl.py`. First build the dataset with
+`prepare_rl_dataset.py` then run the training script. The environment now
+manages a portfolio of many bazaar items simultaneously and will automatically
+close or adjust positions based on cross‑item trends. The script trains a PPO
+agent and evaluates it on a held‑out portion of the data, reporting profit
+statistics and feature usefulness. Results, including the trained model and
+trade log, are saved under `Outputs/`.
 

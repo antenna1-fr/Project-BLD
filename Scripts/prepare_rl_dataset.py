@@ -22,7 +22,7 @@ def main():
     # Drop label column if present
     df = df.drop(columns=[c for c in ['label'] if c in df.columns])
 
-    df = df.sort_values(['item', 'timestamp']).reset_index(drop=True)
+    df = df.sort_values(['timestamp', 'item']).reset_index(drop=True)
 
     # Replace missing/inf values that might destabilise RL training
     df = df.replace([np.inf, -np.inf], np.nan).fillna(0)
