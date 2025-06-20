@@ -3,9 +3,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import gymnasium as gym
+import time
 from gymnasium import spaces
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import EvalCallback
 
@@ -81,6 +82,9 @@ class BazaarTradingEnv(gym.Env):
         del self.positions[item]
 
     def step(self, action):
+        #Timer Start
+        start = time.perf_counter()
+
         row = self.df.iloc[self.step_idx]
         price = row["mid_price"]
         item = row["item"]
@@ -133,6 +137,10 @@ class BazaarTradingEnv(gym.Env):
         info = {"account_value": portfolio_value}
         terminated = done
         truncated = False
+        #Time tracking for performance
+        duration = time.perf_counter() - start
+        print(f"Step {self.step_idx} took {duration:.4f} seconds")
+         
         return obs, reward, terminated, truncated, info
 
 
@@ -187,13 +195,20 @@ def permutation_importance(model: PPO, base_env: BazaarTradingEnv, n_steps: int 
 
 def main(timesteps: int = 5000):
     df = pd.read_csv(config.RL_DATASET_CSV)
+
+    #Downcast float64 to float32 for performance
+    
+    float_cols = df.select_dtypes(include='float64').columns
+    df[float_cols] = df[float_cols].astype(np.float32)
+
     train_df, test_df = split_dataset(df)
 
-    train_env = DummyVecEnv([lambda: Monitor(BazaarTradingEnv(train_df))])
-    test_env = DummyVecEnv([lambda: Monitor(BazaarTradingEnv(test_df))])
+    train_env = SubprocVecEnv([lambda: Monitor(BazaarTradingEnv(train_df)) for _ in range(4)])
+    test_env = SubprocVecEnv([lambda: Monitor(BazaarTradingEnv(train_df)) for _ in range(4)])
+
     eval_callback = EvalCallback(test_env, best_model_save_path=str(config.OUTPUTS_DIR), log_path=str(config.OUTPUTS_DIR), eval_freq=1000, deterministic=True)
 
-    model = PPO("MlpPolicy", train_env, verbose=1, policy_kwargs={"net_arch": [128, 128]}, n_steps=16, batch_size=16)
+    model = PPO("MlpPolicy", train_env, verbose=1, policy_kwargs={"net_arch": [128, 128]}, n_steps=1024, batch_size=512, device="cuda")
     model.learn(total_timesteps=timesteps, callback=eval_callback)
 
     model.save(config.RL_MODEL_PATH)
@@ -221,6 +236,6 @@ def main(timesteps: int = 5000):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train and evaluate RL agent")
-    parser.add_argument("--timesteps", type=int, default=5000, help="Total training timesteps")
+    parser.add_argument("--timesteps", type=int, default=10000, help="Total training timesteps")
     args = parser.parse_args()
     main(args.timesteps)
