@@ -1,8 +1,8 @@
 # Ignore large files
 Data/
-
+Data/Processed/
 #Ignore Outputs
 Outputs/
 
 # Ignore temporary files
-Scripts/_Pycache_/
+Scripts/__Pycache__/
