@@ -4,4 +4,4 @@ Data/Processed/
 #Ignore Outputs
 Outputs/
 # Ignore temporary files
-Scripts/__Pycache__/
+Scripts/__pycache__/
