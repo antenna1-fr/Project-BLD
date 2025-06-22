@@ -77,7 +77,7 @@ def run_backtest(df_sim,
                 continue  # Ignore weak signals
 
             # Exponential scaling of trade size based on confidence
-            alpha = 3.5  # You can tune this to be more/less aggressive
+            alpha = 1  # You can tune this to be more/less aggressive
             scaled_pct = ((confidence - 0.6) / 0.4) ** alpha
             trade_budget = scaled_pct * capital
 

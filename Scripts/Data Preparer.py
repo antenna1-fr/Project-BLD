@@ -19,10 +19,12 @@ ITEM_TO_PLOT     = 'GRIFFIN_FEATHER'
 # long windows in minutes (hourly+ trends)
 LONG_WINDOWS     = [60, 120, 240, 480]    # 1h, 2h, 4h, 8h
 EMA_SPANS        = [60, 240]              # smoothing spans
-LOOKAHEAD_MIN    = 40                    # label lookahead (in minutes)
-PROFIT_UP        = 1.002                   # +.2% profit threshold
-PROFIT_DOWN      = 0.998                   # -.2% loss threshold
-
+LOOKAHEAD_MIN    = 400                    # label lookahead (in minutes)
+PROFIT_UP        = 1.015                   # +1.5% profit threshold
+PROFIT_DOWN      = 0.99                   # -1% loss threshold
+VOLUME_THRESHOLD = 300                    # minimum weekly volume to consider item
+MID_PRICE_THRESHOLD = 10_000              # minimum mid-price to consider item
+TOP_LIQUIDITY_ITEMS = 120  # keep top N items by liquidity score
 # ============================================================================
 # 1) LOAD historical feature table from SQLite
 # ============================================================================
@@ -40,6 +42,22 @@ df = df.sort_values(['item', 'datetime']).reset_index(drop=True)
 # mid_price if not already present
 if 'mid_price' not in df.columns:
     df['mid_price'] = (df['buy_price'] + df['sell_price']) / 2
+
+df = df[df["sell_moving_week"] >=  VOLUME_THRESHOLD]  # filter by weekly volume
+df = df[df["mid_price"]    >= MID_PRICE_THRESHOLD]  # filter by mid-price
+
+# Rank & keep top amount by liquidity_score
+df["liquidity_score"] = df["sell_moving_week"] * df["mid_price"]
+topamount = (
+    df.groupby("item")["liquidity_score"]
+      .mean()
+      .sort_values(ascending=False)
+      .head(TOP_LIQUIDITY_ITEMS)
+      .index
+)
+df = df[df["item"].isin(topamount)].copy()
+df.drop(columns="liquidity_score", inplace=True)
+
 
 # group-transform for each window
 for w in LONG_WINDOWS:
@@ -86,8 +104,7 @@ df[num_cols] = scaler.fit_transform(df[num_cols])
 # 5) SAVE to CSV
 # ============================================================================
 os.makedirs(DATA_DIR, exist_ok=True)
-df_trimmed = df.iloc[:-300]  # remove last 300 rows to avoid future data leakage
-df_trimmed.to_csv(OUTPUT_CSV, index=False)
+df.to_csv(OUTPUT_CSV, index=False)
 print(f"Saved normalized & labeled data to {OUTPUT_CSV}")
 
 # ============================================================================

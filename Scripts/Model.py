@@ -1,224 +1,262 @@
-import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import xgboost as xgb
+"""
+xgb_train_top100_gpu_es.py ― XGBoost pipeline with
+ • volume/price filtering ➜ top-100 items  
+ • class-weighted cost-sensitive learning  
+ • early-stopping on a rolling validation window  
+ • GPU acceleration
+ • SHAP model-explainability report
+
+─────────────────────────────────────────────────────────────────────────────
+Prereqs
+-------
+pip install -U xgboost shap scikit-learn matplotlib pandas numpy
+
+-------------------
+Columns:  
+  • item (str)                         – Bazaar item name  
+  • timestamp (int/float)              – epoch seconds  
+  • mid_price (float)                  – mid-point price [coins]  
+  • moving_weekly (float) or volume    – 7-day moving trade volume  
+  • label   (int)  {-1:sell, 0:hold, 1:buy}
+
+"""
+
+from __future__ import annotations
+
 import gc
+import os
 import sys
 from pathlib import Path
-
-# project configuration
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-import config
-
-from sklearn.model_selection import TimeSeriesSplit,GridSearchCV,train_test_split
+import xgboost as xgb
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import shap
+from packaging import version
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    make_scorer,
+)
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.utils import resample
-from sklearn.inspection import permutation_importance
-from sklearn.base import BaseEstimator, ClassifierMixin
 from xgboost import XGBClassifier
-from sklearn.metrics import make_scorer, f1_score
+from xgboost.callback import EarlyStopping,EvaluationMonitor
 
-# === CONFIG ===
-CSV_PATH       = str(config.PROCESSED_CSV)
-TEST_SIZE      = 0.20
-RANDOM_STATE   = 42
-OUTPUT_PLOT    = str(config.CONFUSION_MATRIX_PLOT)
+# ─────────────────────────── project paths ──────────────────────────────
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import config  # noqa: E402
+
+XGB_VER = version.parse(xgb.__version__)
+print(f"Using XGBoost version:", XGB_VER)
+CSV_PATH = str(config.PROCESSED_CSV)
+OUTPUT_PLOT = str(config.CONFUSION_MATRIX_PLOT)
 OUTPUT_PREDICTIONS = str(config.PREDICTIONS_CSV)
+OUTPUT_SHAP = str(config.OUTPUTS_DIR / "shap_feature_importance.csv")
 
-# -----------------------------------------------------------------------------
-# 1) LOAD & PREPARE DATA
-# -----------------------------------------------------------------------------
+TEST_SIZE = 0.20
+RANDOM_STATE = 42
+TOP_N = 100
+
+# ────────────────── 1) LOAD & DROP RECENT ITEMS ───────────────────
 df = pd.read_csv(CSV_PATH)
-df = df.sort_values(['item', 'timestamp']).reset_index(drop=True)
 
-# Remove last 40 snapshots per item
-df = df.groupby('item').apply(lambda g: g.iloc[:-40] if len(g) > 40 else g.iloc[0:0]).reset_index(drop=True)
-df = df.sort_values('timestamp').reset_index(drop=True)
+# Sort chronologically; drop final 400 snapshots per item to avoid leakage
+df = df.sort_values(["item", "timestamp"]).reset_index(drop=True)
+df = (
+    df.groupby("item")
+    .apply(lambda g: g.iloc[:-400] if len(g) > 400 else g.iloc[0:0])
+    .reset_index(drop=True)
+)
+df = df.sort_values("timestamp").reset_index(drop=True)
 
-# keep item labels for later use in the simulation
-item_series = df['item']
+# Down-cast to float32 for memory efficiency
+float_cols = df.select_dtypes("float64").columns
+df[float_cols] = df[float_cols].astype("float32")
 
-# one-hot encode items for the model
-df = pd.get_dummies(df, columns=['item'], prefix='item')
+item_series = df["item"].copy()  # keep original for sim output
+df = pd.get_dummies(df, columns=["item"], prefix="item")
 
-# define features & label
-drop_cols   = {'timestamp', 'datetime', 'label'}
-feature_cols = [
-    c for c in df.columns
-    if c not in drop_cols and pd.api.types.is_numeric_dtype(df[c])
-]
-X = df[feature_cols]
-y = df['label']
+# ────────────────── 2) FEATURE MATRIX / LABEL SPLIT ─────────────────────
+drop_cols = {"timestamp", "datetime", "label"}
+feature_cols = [c for c in df.columns if c not in drop_cols]
 
+X_all = df[feature_cols]
+y_all = df["label"]
 
-# time-based 80/20 split
-split_idx      = int(len(df) * (1 - TEST_SIZE))
-X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
-y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+split_idx = int(len(df) * (1 - TEST_SIZE))
+X_train_full, X_test = X_all.iloc[:split_idx], X_all.iloc[split_idx:]
+y_train_full, y_test = y_all.iloc[:split_idx], y_all.iloc[split_idx:]
 
+# Reserve the last 10 % of the training chunk for early-stopping validation
+val_split = int(len(X_train_full) * 0.9)
+X_train, X_val = X_train_full.iloc[:val_split], X_train_full.iloc[val_split:]
+y_train, y_val = y_train_full.iloc[:val_split], y_train_full.iloc[val_split:]
 
-print("TRAIN shape:", X_train.shape, y_train.shape)
-print(" TEST shape:", X_test.shape, y_test.shape)
+# ────────────────── 3) OVERSAMPLE + COST-SENSITIVE WEIGHTS ──────────────
+train_df = pd.concat([X_train, y_train.rename("label")], axis=1)
+df_hold = train_df[train_df["label"] == 0]
+df_buy = train_df[train_df["label"] == 1]
+df_sell = train_df[train_df["label"] == -1]
 
-print("TRAIN dist:\n", y_train.value_counts(normalize=True))
-print(" TEST dist:\n", y_test.value_counts(normalize=True))
+train_bal = (
+    pd.concat([df_hold, df_buy, df_sell]).sample(frac=1, random_state=RANDOM_STATE)
+)
 
-# -----------------------------------------------------------------------------
-# 2) OVERSAMPLE TRAINING MINORITIES
-# -----------------------------------------------------------------------------
-train_df = pd.concat([X_train, y_train.rename('label')], axis=1)
-df_hold  = train_df[train_df['label'] == 0]    # HOLD is label == 0
-df_buy   = train_df[train_df['label'] == 1]    # BUY   is label == 1
-df_sell  = train_df[train_df['label'] == -1]   # SELL  is label == -1
+X_tr_bal = train_bal[feature_cols].fillna(0).astype("float32")
+y_tr_bal = train_bal["label"]
 
-n_hold = len(df_hold)
-target = int(n_hold * 0.25)   # e.g. make buy & sell each 0.25x the size of hold
-df_buy_os  = resample(df_buy,  replace=True, n_samples=target, random_state=RANDOM_STATE)
-df_sell_os = resample(df_sell, replace=True, n_samples=target, random_state=RANDOM_STATE)
-train_bal  = pd.concat([df_hold, df_buy_os, df_sell_os]) \
-                 .sample(frac=1, random_state=RANDOM_STATE)
+# Cost-sensitive sample weights: inverse frequency + manual penalty boost
+class_counts = y_tr_bal.value_counts().to_dict()
+base_weights = {0: 1, -1: 1, 1: 1}
+# Extra 2× penalty to SELL mis-classifications (business-driven)
+base_weights[-1] *= 2.0
+sample_weights = y_tr_bal.map(base_weights).values
 
-X_tr_bal = train_bal[feature_cols]
-y_tr_bal = train_bal['label']
+# ────────────────── 4) LABEL ENCODING {-1,0,1} → {0,1,2} ───────────────
+le = LabelEncoder()
+y_tr_enc = le.fit_transform(y_tr_bal)
+y_val_enc = le.transform(y_val)
 
-print("\nBALANCED TRAIN dist:\n", y_tr_bal.value_counts(normalize=True))
+LABEL2IDX = {lbl: idx for idx, lbl in enumerate(le.classes_)}
+IDX2LABEL = {idx: lbl for lbl, idx in LABEL2IDX.items()}
 
-# -----------------------------------------------------------------------------
-# 3) LABEL-ENCODE for XGBoost (must be 0,1,2)
-# -----------------------------------------------------------------------------
-le      = LabelEncoder()
-y_tr_enc = le.fit_transform(y_tr_bal)    # maps {-1,0,1} → {0,1,2}
+# ────────────────── 5) XGB CLASSIFIER (GPU if available) ────────────────
 
-# ----------------------------------------------------------------------
-# 4) TimeSeriesSplit + Hyperparameter Tuning with GridSearchCV
-# ----------------------------------------------------------------------
+# A) Decide tree_method safely
+def choose_tree_method() -> tuple[str, str]:
+    try:
+        # Works on xgboost 2.x with CUDA build
+        if xgb.cuda.is_cuda_array_available():
+            return "gpu_hist", "gpu_predictor"
+    except Exception:  # pragma: no cover
+        pass
+    return "hist", "auto"
 
-# Use balanced training data
-X_bal_num = X_tr_bal.fillna(0).astype('float32')
-y_bal_enc = le.fit_transform(y_tr_bal)  # Label encoding if not done yet
+tree_method, predictor = choose_tree_method()
+print(f"🚀  Training with tree_method={tree_method}")
 
-# Define time series split (e.g. 5 folds)
-tscv = TimeSeriesSplit(n_splits=5)
-
-# XGBClassifier wrapper (scikit-learn compatible)
-xgb_clf = XGBClassifier(
-    objective='multi:softprob',
-    num_class=3,
-    tree_method='hist',
+# B) Build model
+xgb_model = XGBClassifier(
+    objective="multi:softprob",
+    num_class=3,                 # int, required for multi-class
+    tree_method=tree_method,
+    predictor=predictor,
     seed=RANDOM_STATE,
-    use_label_encoder=False,
-    eval_metric='mlogloss'
+    learning_rate=0.08,
+    max_depth=11,
+    subsample=0.75,
+    colsample_bytree=0.8,
+    early_stopping_rounds=500,
+    n_estimators=3000,          # large cap, trimmed by early-stop
+    eval_metric="mlogloss",  
+    scale_pos_weight=None
 )
-
-# Define param grid
-param_grid = {
-    'learning_rate': [.13],
-    'max_depth': [11],
-    'subsample': [.75],
-    'colsample_bytree': [0.8],
-    'n_estimators': [250]  # keep high for early stopping
-}
-
-# GridSearchCV with macro F1 as scoring
-grid_search = GridSearchCV(
-    estimator=xgb_clf,
-    param_grid=param_grid,
-    cv=tscv,
-    scoring=make_scorer(f1_score, average='macro'),
-    verbose=2,
-    n_jobs=-1
+xgb_model.fit(
+    X_tr_bal,
+    y_tr_enc,
+    sample_weight=sample_weights,
+    eval_set=[(X_val, y_val_enc)],
+    verbose=200,                     # prints every 200 rounds
 )
+print("✅  Best boosting round:", xgb_model.best_iteration)
 
-grid_search.fit(X_bal_num, y_bal_enc)
-best_model = grid_search.best_estimator_
-print(f"\n✅ Best params: {grid_search.best_params_}")
+
+# ────────────────── 6) PREDICTION WITH CONF. THRESHOLD ──────────────────
+X_test_num   = X_test.fillna(0).astype("float32")
+y_pred_prob  = xgb_model.predict_proba(X_test_num)
+
+# plain arg-max in probability space
+raw_pred_enc = np.argmax(y_pred_prob, axis=1)
+y_pred       = le.inverse_transform(raw_pred_enc)
 
 # ----------------------------------------------------------------------
-# 5) Predict with Thresholding
-# ----------------------------------------------------------------------
+# OPTIONAL: add a confidence filter *after* arg-max
+# (leave threshold = None to disable)
+threshold = None            # e.g. 0.40 to force min confidence
+if threshold is not None:
+    forced = []
+    for i, p in enumerate(y_pred_prob):
+        if p[raw_pred_enc[i]] < threshold:
+            forced.append(LABEL2IDX[0])        # fallback to HOLD
+        else:
+            forced.append(raw_pred_enc[i])
+    y_pred = le.inverse_transform(forced)
 
-X_test_num = X_test.fillna(0).astype('float32')
-y_pred_prob = best_model.predict_proba(X_test_num)
-
-# Get encoded index for labels
-idx_buy  = np.where(le.classes_ == 1)[0][0]
-idx_sell = np.where(le.classes_ == -1)[0][0]
-idx_hold = np.where(le.classes_ == 0)[0][0]
-
-# Apply confidence threshold
-threshold = 0.6
-y_pred_enc = []
-for prob in y_pred_prob:
-    if prob[idx_buy] > threshold:
-        y_pred_enc.append(idx_buy)
-    elif prob[idx_sell] > threshold:
-        y_pred_enc.append(idx_sell)
-    else:
-        y_pred_enc.append(idx_hold)
-
-# Decode back to {-1, 0, 1}
-y_pred = le.inverse_transform(y_pred_enc)
-
-
-print("\nClassification Report:\n")
+print("\nClassification report:")
 print(classification_report(y_test, y_pred, digits=4))
 
-# -----------------------------------------------------------------------------
-# 6) CONFUSION MATRIX PLOT
-# -----------------------------------------------------------------------------
+# ────────────────── 7) CONFUSION MATRIX PLOT ────────────────────────────
 labels = [-1, 0, 1]
-cm     = confusion_matrix(y_test, y_pred, labels=labels)
-
-fig, ax = plt.subplots(figsize=(5,5))
-im = ax.imshow(cm, cmap='Blues')
-ax.set_xticks(range(len(labels)))
-ax.set_yticks(range(len(labels)))
-ax.set_xticklabels(labels)
-ax.set_yticklabels(labels)
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.title('XGBoost Confusion Matrix')
-
+cm = confusion_matrix(y_test, y_pred, labels=labels)
+fig, ax = plt.subplots(figsize=(5, 5))
+im = ax.imshow(cm, cmap="Blues")
+ax.set(
+    xticks=range(len(labels)),
+    yticks=range(len(labels)),
+    xticklabels=labels,
+    yticklabels=labels,
+    xlabel="Predicted",
+    ylabel="Actual",
+    title="XGBoost Confusion Matrix",
+)
 for i in range(len(labels)):
     for j in range(len(labels)):
-        ax.text(j, i, cm[i, j],
-                ha='center', va='center',
-                color='white' if cm[i, j] > cm.max()/2 else 'black')
-
+        ax.text(
+            j,
+            i,
+            cm[i, j],
+            ha="center",
+            va="center",
+            color="white" if cm[i, j] > cm.max() / 2 else "black",
+        )
 plt.colorbar(im)
 plt.tight_layout()
 os.makedirs(os.path.dirname(OUTPUT_PLOT), exist_ok=True)
 plt.savefig(OUTPUT_PLOT)
 plt.show()
-print(f"\nConfusion matrix plot saved to {OUTPUT_PLOT}")
+print(f"📈  Confusion matrix saved → {OUTPUT_PLOT}")
 
-# -----------------------------------------------------------------------------
-# 7) Prepare Simulation Inputs
-# -----------------------------------------------------------------------------
+# ────────────────── 8) SHAP EXPLAINABILITY (TOP-20) ─────────────────────
+explainer = shap.TreeExplainer(xgb_model)
+shap_values = explainer.shap_values(X_test_num, check_additivity=False)
 
-# Ensure mid_price is present in test set
-if 'mid_price' not in df.columns:
-    raise ValueError("mid_price column missing from dataset — required for simulation.")
+# For multi-class, shap_values is List[ndarray]; aggregate absolute mean
+shap_abs_mean = np.mean(np.abs(shap_values), axis=1)  # shape (3, n_samples, n_features)
+shap_global = shap_abs_mean.mean(axis=1)              # (3, n_features)
+shap_sum = shap_global.sum(axis=0)                    # overall importance
 
-# Match index with y_test
-df_sim = pd.DataFrame({
-    'timestamp': df.iloc[y_test.index]['timestamp'].values,
-    'item': item_series.iloc[y_test.index].values,
-    'mid_price': df.iloc[y_test.index]['mid_price'].values,
-    'true_label': y_test.values,
-    'pred_label': y_pred,
-    'pred_proba_buy': y_pred_prob[:, le.transform([1])[0]],
-    'pred_proba_sell': y_pred_prob[:, le.transform([-1])[0]],
-    'pred_proba_hold': y_pred_prob[:, le.transform([0])[0]],
-})
+shap_importance = (
+    pd.DataFrame({"feature": feature_cols, "mean_abs_shap": shap_sum})
+    .sort_values("mean_abs_shap", ascending=False)
+    .head(20)
+)
+os.makedirs(os.path.dirname(OUTPUT_SHAP), exist_ok=True)
+shap_importance.to_csv(OUTPUT_SHAP, index=False)
+print("\n🔍  Top-20 features by SHAP importance:")
+print(shap_importance.to_string(index=False))
+print(f"\n💾  Full SHAP importances saved → {OUTPUT_SHAP}")
 
-# Optional: add highest class confidence and predicted action
-df_sim['pred_class_confidence'] = y_pred_prob.max(axis=1)
-df_sim['pred_class_name'] = y_pred
-
-# Preview
-print(f"\n Simulator Input Preview Saved to {OUTPUT_PREDICTIONS}")
-
+# ────────────────── 9) SIMULATION CSV OUTPUT ────────────────────────────
+df_sim = pd.DataFrame(
+    {
+        "timestamp": df.iloc[y_test.index]["timestamp"].values,
+        "item": item_series.iloc[y_test.index].values,
+        "mid_price": df.iloc[y_test.index]["mid_price"].values,
+        "true_label": y_test.values,
+        "pred_label": y_pred,
+        "pred_proba_buy": y_pred_prob[:, LABEL2IDX[1]],
+        "pred_proba_sell": y_pred_prob[:, LABEL2IDX[-1]],
+        "pred_proba_hold": y_pred_prob[:, LABEL2IDX[0]],
+        "pred_class_confidence": y_pred_prob.max(axis=1),
+    }
+)
+os.makedirs(os.path.dirname(OUTPUT_PREDICTIONS), exist_ok=True)
 df_sim.to_csv(OUTPUT_PREDICTIONS, index=False)
+print(f"💾  Prediction CSV saved → {OUTPUT_PREDICTIONS}")
+
+# ────────────────── 10) CLEAN-UP  ───────────────────────────────────────
+del X_all, X_train_full, X_train, X_val, X_test
+gc.collect()

@@ -21,6 +21,13 @@ def main():
 
     # Drop label column if present
     df = df.drop(columns=[c for c in ['label'] if c in df.columns])
+    xgb_output_df = pd.read_csv(config.PREDICTIONS_CSV)
+
+    # Add prediction info to RL dataframe
+    df['pred_label'] = xgb_output_df['pred_label']
+    df['pred_proba_buy'] = xgb_output_df['pred_proba_buy']
+    df['pred_proba_sell'] = xgb_output_df['pred_proba_sell']
+    df['pred_class_confidence'] = xgb_output_df['pred_class_confidence']
 
     df = df.sort_values(['timestamp', 'item']).reset_index(drop=True)
 
