@@ -5,6 +5,8 @@ import requests
 import signal
 import sys
 from pathlib import Path
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import config
@@ -85,9 +87,18 @@ def ensure_db():
 
 def fetch_all_bazaar_data():
     url = f"https://api.hypixel.net/skyblock/bazaar?key={API_KEY}"
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-    return resp.json()['products']
+    # try up to 8 times with exponential backoff
+    for attempt in range(8):
+        try:
+            resp = session.get(url, timeout=(5, 30))
+            resp.raise_for_status()
+            print("Snapshot Taken")
+            return resp.json()['products']
+        except (requests.exceptions.RequestException, ValueError) as e:
+            wait = 1.35 ** attempt
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetch error (attempt {attempt+1}/5): {e!r}; retrying in {wait}s…")
+            time.sleep(wait)
+    raise RuntimeError("Failed to fetch bazaar data after 5 attempts")
 
 def compute_features(history):
     feat = {f: 0.0 for f in FEATURE_FIELDS}
@@ -194,4 +205,17 @@ def run_loop():
     print("Shutting down gracefully.")
 
 if __name__ == "__main__":
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "HEAD", "OPTIONS"]
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
     run_loop()
+# This script fetches bazaar data from Hypixel Skyblock API, computes features,
+# and stores them in a SQLite database for further analysis or modeling. 
