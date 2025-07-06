@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-import config
+import config as config
 
 # === CONFIG ===
 DATA_DIR    = str(config.DATA_DIR)

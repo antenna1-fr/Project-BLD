@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-import config
+import config as config
 
 # === Default Paths ===
 load_data_path_default = str(config.PREDICTIONS_CSV)
@@ -15,10 +15,10 @@ save_data_path_default = str(config.TRADE_LOG_CSV)
 print(f"Default paths: {load_data_path_default}, {save_data_path_default}")
 
 def run_backtest(df_sim,
-                 initial_capital=25_000_000,
+                 initial_capital=1_000_000_000,
                  min_trade_amount=75_000,
                  min_trade_pct=0.03,
-                 exit_profit_threshold=0.1):
+                 exit_profit_threshold=0.5):
     """Backtest trades in time order respecting item identity."""
 
     capital = initial_capital
@@ -77,8 +77,8 @@ def run_backtest(df_sim,
                 continue  # Ignore weak signals
 
             # Exponential scaling of trade size based on confidence
-            alpha = 1  # You can tune this to be more/less aggressive
-            scaled_pct = ((confidence - 0.6) / 0.4) ** alpha
+            alpha = 4  # You can tune this to be more/less aggressive
+            scaled_pct = ((confidence - 0.6) / 0.5) ** alpha
             trade_budget = scaled_pct * capital
 
             if trade_budget >= min_trade_amount:

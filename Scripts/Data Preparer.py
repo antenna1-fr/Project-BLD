@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import time
+import joblib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,19 +10,21 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-import config
+import config as config
 
 # === CONFIG ===
 DATA_DIR         = str(config.PROCESSED_DIR)
 DB_PATH          = str(config.DB_PATH)
 OUTPUT_CSV       = str(config.PROCESSED_CSV)
+
 ITEM_TO_PLOT     = 'GRIFFIN_FEATHER'  
 # long windows in minutes (hourly+ trends)
-LONG_WINDOWS     = [60, 120, 240, 480]    # 1h, 2h, 4h, 8h
-EMA_SPANS        = [60, 240]              # smoothing spans
-LOOKAHEAD_MIN    = 400                    # label lookahead (in minutes)
-PROFIT_UP        = 1.015                   # +1.5% profit threshold
-PROFIT_DOWN      = 0.99                   # -1% loss threshold
+LONG_WINDOWS     = [60, 120, 240, 720, 1440, 2880, 5760]    # 1h, 2h, 4h, 12h, 1d, 2d, 4d
+EMA_SPANS        = [60, 240, 720, 2880]              # smoothing spans
+LOOKAHEAD_UP     = 1440                    # label lookahead (in minutes)
+LOOKAHEAD_DOWN   = 1440                    # label lookahead (in minutes)
+PROFIT_UP        = 1.08                   # +8% profit threshold
+PROFIT_DOWN      = 0.96                   # -4% loss threshold
 VOLUME_THRESHOLD = 300                    # minimum weekly volume to consider item
 MID_PRICE_THRESHOLD = 10_000              # minimum mid-price to consider item
 TOP_LIQUIDITY_ITEMS = 120  # keep top N items by liquidity score
@@ -71,34 +74,59 @@ for span in EMA_SPANS:
     df[f'mid_ema{span}'] = df.groupby('item')['mid_price']\
                               .transform(lambda x: x.ewm(span=span, adjust=False).mean())
 
+price_min = float(df["mid_price"].min())
+price_max = float(df["mid_price"].max())
+
 # ============================================================================
 # 3) LABEL based on future profit over LOOKAHEAD window
 # ============================================================================
 def label_group(g):
     prices = g['mid_price'].values
-    labels = np.zeros(len(g), dtype=int)
-    window = LOOKAHEAD_MIN
-    for i in range(len(g) - window):
-        future = prices[i+1:i+1+window]
-        if future.max() > prices[i] * PROFIT_UP:
+    n = len(prices)
+    labels = np.zeros(n, dtype=int)
+
+    # use the larger window to make sure we don't run past the array
+    max_window = max(LOOKAHEAD_UP, LOOKAHEAD_DOWN)
+
+    for i in range(n - max_window):
+        # look ahead with different horizons
+        future_up   = prices[i+1 : i+1+LOOKAHEAD_UP]
+        future_down = prices[i+1 : i+1+LOOKAHEAD_DOWN]
+
+        # label 1 if an “up” threshold is hit within LOOKAHEAD_UP
+        if future_up.max() > prices[i] * PROFIT_UP:
             labels[i] = 1
-        elif future.min() < prices[i] * PROFIT_DOWN:
+        # label -1 if a “down” threshold is hit within LOOKAHEAD_DOWN
+        elif future_down.min() < prices[i] * PROFIT_DOWN:
             labels[i] = -1
+        # otherwise 0 (hold)
         else:
             labels[i] = 0
+
+    # the last max_window points remain at the default 0
     g['label'] = labels
     return g
-
 df = df.groupby('item', group_keys=False).apply(label_group)
 # ============================================================================
 # 4) NORMALIZE all numeric feature columns (excluding identifiers & label)
 # ============================================================================
-exclude = {'item','timestamp','datetime','label'}
-num_cols = [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
-scaler   = StandardScaler()
+# 4) SCALE numeric feature columns to the range [0, 1]
+exclude  = {"item", "timestamp", "datetime", "label"}
+num_cols = [c for c in df.columns
+            if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
+
+from sklearn.preprocessing import MinMaxScaler
+scaler = MinMaxScaler(feature_range=(0.00000001, 1.0))
 df[num_cols] = scaler.fit_transform(df[num_cols])
 
+ 
+joblib.dump(scaler, os.path.join(DATA_DIR, "feature_scaler.pkl"))
 
+import json, pathlib
+scale_meta = {"mid_price": {"min": price_min, "max": price_max}}
+meta_path  = pathlib.Path("Data/Processed/rl_scaling.json")
+meta_path.write_text(json.dumps(scale_meta, indent=2))
+print("Wrote scaling meta →", meta_path)
 
 # ============================================================================
 # 5) SAVE to CSV
@@ -132,7 +160,7 @@ print(f"Plots saved under {plot_dir}")
 # ============================================================================  
 # 7) PRINT LABEL DISTRIBUTION PERCENTAGES
 # ============================================================================
-label_counts = df_trimmed['label'].value_counts(normalize=True) * 100
+label_counts = df['label'].value_counts(normalize=True) * 100
 print("Label distribution percentages:")
 for label, pct in label_counts.sort_index().items():
     print(f"Label {label}: {pct:.2f}%")

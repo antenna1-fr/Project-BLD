@@ -9,7 +9,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-import config
+import config as config
 
 # === CONFIG ===
 API_KEY           = ''  # ← your Hypixel API key

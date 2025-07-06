@@ -8,3 +8,4 @@ stable-baselines3
 shap
 requests
 packaging
+optuna

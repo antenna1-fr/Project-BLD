@@ -5,3 +5,4 @@ Data/Processed/
 Outputs/
 # Ignore temporary files
 **/__pycache__/
+venv311/

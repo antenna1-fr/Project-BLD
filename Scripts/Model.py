@@ -29,10 +29,13 @@ import sys
 from pathlib import Path
 import xgboost as xgb
 import matplotlib.pyplot as plt
+sys.path.append(str(Path(__file__).resolve().parent.parent)) # repo root\n
+import config as config  # must live in PYTHONPATH or same dir
 import numpy as np
 import pandas as pd
 import shap
 from packaging import version
+import optuna
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -46,9 +49,6 @@ from xgboost import XGBClassifier
 from xgboost.callback import EarlyStopping,EvaluationMonitor
 
 # ─────────────────────────── project paths ──────────────────────────────
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-import config  # noqa: E402
-
 XGB_VER = version.parse(xgb.__version__)
 print(f"Using XGBoost version:", XGB_VER)
 CSV_PATH = str(config.PROCESSED_CSV)
@@ -67,7 +67,7 @@ df = pd.read_csv(CSV_PATH)
 df = df.sort_values(["item", "timestamp"]).reset_index(drop=True)
 df = (
     df.groupby("item")
-    .apply(lambda g: g.iloc[:-400] if len(g) > 400 else g.iloc[0:0])
+    .apply(lambda g: g.iloc[:-1440] if len(g) > 1440 else g.iloc[0:0])
     .reset_index(drop=True)
 )
 df = df.sort_values("timestamp").reset_index(drop=True)
@@ -138,28 +138,76 @@ def choose_tree_method() -> tuple[str, str]:
 tree_method, predictor = choose_tree_method()
 print(f"🚀  Training with tree_method={tree_method}")
 
-# B) Build model
-xgb_model = XGBClassifier(
-    objective="multi:softprob",
-    num_class=3,                 # int, required for multi-class
-    tree_method=tree_method,
-    predictor=predictor,
-    seed=RANDOM_STATE,
-    learning_rate=0.08,
-    max_depth=11,
-    subsample=0.75,
-    colsample_bytree=0.8,
-    early_stopping_rounds=500,
-    n_estimators=3000,          # large cap, trimmed by early-stop
-    eval_metric="mlogloss",  
-    scale_pos_weight=None
-)
+# B) Objective Definition
+
+def objective(trial):
+    params = {
+        "objective": "multi:softprob",
+        "num_class": 3,
+        "tree_method": tree_method,
+        "predictor": predictor,
+        "learning_rate": trial.suggest_float("learning_rate", 0.08, 0.13),
+        "max_depth": trial.suggest_int("max_depth", 6, 10),
+        "min_child_weight": trial.suggest_int("min_child_weight", 3, 7),
+        "subsample": trial.suggest_float("subsample", 0.7, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "gamma": trial.suggest_float("gamma", .5, 2),
+        "alpha": trial.suggest_float("alpha", 0.0, 1),
+        "eval_metric": "mlogloss",
+        "n_estimators": 750,
+        "seed": RANDOM_STATE,
+    }
+
+    model = XGBClassifier(**params)
+    model.fit(
+        X_tr_bal,
+        y_tr_enc,
+        sample_weight=sample_weights,
+        eval_set=[(X_val, y_val_enc)],
+        verbose=False
+    )
+
+    preds = model.predict(X_val)
+    f1 = f1_score(y_val_enc, preds, average="macro")
+    return f1
+if __name__ == "__main__" and config.ENABLE_OPTUNA:
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=15) 
+
+    print("✅ Best params:", study.best_params)
+    print("🎯 Best macro-F1:", study.best_value)
+    best_params = study.best_params 
+else:
+    best_params = {'learning_rate': 0.11592016476593922, 'max_depth': 7, 'min_child_weight': 5, 'subsample': 0.9439252674820234, 'colsample_bytree': 0.7658074839270397, 'gamma': 1.045760656283378, 'alpha': 0.028667196702399807}
+
+# C) Build model
+
+
+best_params.update({
+    "objective": "multi:softprob",
+    "num_class": 3,
+    "tree_method": tree_method,
+    "predictor": predictor,
+    "eval_metric": "mlogloss",
+    "n_estimators": 500,
+    "early_stopping_rounds": 150,
+    "seed": RANDOM_STATE,
+})
+
+xgb_model = XGBClassifier(**best_params)
+import inspect
+
+print("XGBoost version:", xgb.__version__)
+print("Model type:", type(xgb_model))
+print("Model class location:", inspect.getfile(type(xgb_model)))
+print("Has 'callbacks' in fit signature?:", 'callbacks' in inspect.signature(xgb_model.fit).parameters)
+
 xgb_model.fit(
     X_tr_bal,
     y_tr_enc,
     sample_weight=sample_weights,
     eval_set=[(X_val, y_val_enc)],
-    verbose=200,                     # prints every 200 rounds
+    verbose=200
 )
 print("✅  Best boosting round:", xgb_model.best_iteration)
 
@@ -218,26 +266,6 @@ os.makedirs(os.path.dirname(OUTPUT_PLOT), exist_ok=True)
 plt.savefig(OUTPUT_PLOT)
 plt.show()
 print(f"📈  Confusion matrix saved → {OUTPUT_PLOT}")
-
-# ────────────────── 8) SHAP EXPLAINABILITY (TOP-20) ─────────────────────
-explainer = shap.TreeExplainer(xgb_model)
-shap_values = explainer.shap_values(X_test_num, check_additivity=False)
-
-# For multi-class, shap_values is List[ndarray]; aggregate absolute mean
-shap_abs_mean = np.mean(np.abs(shap_values), axis=1)  # shape (3, n_samples, n_features)
-shap_global = shap_abs_mean.mean(axis=1)              # (3, n_features)
-shap_sum = shap_global.sum(axis=0)                    # overall importance
-
-shap_importance = (
-    pd.DataFrame({"feature": feature_cols, "mean_abs_shap": shap_sum})
-    .sort_values("mean_abs_shap", ascending=False)
-    .head(20)
-)
-os.makedirs(os.path.dirname(OUTPUT_SHAP), exist_ok=True)
-shap_importance.to_csv(OUTPUT_SHAP, index=False)
-print("\n🔍  Top-20 features by SHAP importance:")
-print(shap_importance.to_string(index=False))
-print(f"\n💾  Full SHAP importances saved → {OUTPUT_SHAP}")
 
 # ────────────────── 9) SIMULATION CSV OUTPUT ────────────────────────────
 df_sim = pd.DataFrame(
