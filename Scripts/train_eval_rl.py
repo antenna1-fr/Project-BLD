@@ -778,7 +778,6 @@ def simulate_policy(env_df: pd.DataFrame, policy, *, csv_path: Path | None = Non
         trade_df.to_csv(csv_path, index=False)
         print(f"✓ Teacher trade-log saved → {csv_path}")
 
-    # ⇓⇓⇓  **DON’T forget to return it**  ⇓⇓⇓
     return trade_df            # ← add / keep this line
 
 def evaluate(model: PPO, env: BazaarTradingEnv, limit_steps: int | None = None):
@@ -835,8 +834,8 @@ class AutoScheduleCB(EvalCallback):
         with torch.no_grad():
             self.model.policy.log_std.clamp_(min=-1.5)
         # —— reset optimizer state every 1 000 000 steps
-        if self.model.num_timesteps % 1_000_000 == 0:
-            self.model.policy.optimizer.state = {}
+#        if self.model.num_timesteps % 1_000_000 == 0:
+#           self.model.policy.optimizer.state = {}
         return super()._on_step()
 
 

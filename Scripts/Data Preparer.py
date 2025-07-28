@@ -89,7 +89,7 @@ def label_group(g):
     max_window = max(LOOKAHEAD_UP, LOOKAHEAD_DOWN)
 
     for i in range(n - max_window):
-        # look ahead with different horizons
+        # look ahead with different horizons  
         future_up   = prices[i+1 : i+1+LOOKAHEAD_UP]
         future_down = prices[i+1 : i+1+LOOKAHEAD_DOWN]
 

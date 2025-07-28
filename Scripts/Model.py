@@ -1,6 +1,4 @@
 """
-xgb_train_top100_gpu_es.py ― XGBoost pipeline with
- • volume/price filtering ➜ top-100 items  
  • class-weighted cost-sensitive learning  
  • early-stopping on a rolling validation window  
  • GPU acceleration
@@ -58,12 +56,10 @@ OUTPUT_SHAP = str(config.OUTPUTS_DIR / "shap_feature_importance.csv")
 
 TEST_SIZE = 0.20
 RANDOM_STATE = 42
-TOP_N = 100
-
 # ────────────────── 1) LOAD & DROP RECENT ITEMS ───────────────────
 df = pd.read_csv(CSV_PATH)
 
-# Sort chronologically; drop final 400 snapshots per item to avoid leakage
+# Sort chronologically; drop final 1440 snapshots per item to avoid leakage
 df = df.sort_values(["item", "timestamp"]).reset_index(drop=True)
 df = (
     df.groupby("item")
@@ -73,8 +69,11 @@ df = (
 df = df.sort_values("timestamp").reset_index(drop=True)
 
 # Down-cast to float32 for memory efficiency
-float_cols = df.select_dtypes("float64").columns
-df[float_cols] = df[float_cols].astype("float32")
+to_cast = [
+    c for c in df.select_dtypes("float64").columns
+    if c not in ("timestamp", "mid_price")
+]
+df[to_cast] = df[to_cast].astype("float32")
 
 item_series = df["item"].copy()  # keep original for sim output
 df = pd.get_dummies(df, columns=["item"], prefix="item")
