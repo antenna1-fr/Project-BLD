@@ -901,7 +901,7 @@ def main(total_timesteps: int = C.TOTAL_TIMESTEPS):
     train_env = SubprocVecEnv([make_env(train_df) for _ in range(n_envs)])
     train_env = VecNormalize(train_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
-    test_env = DummyVecEnv([make_env(test_df, explore=True)])
+    test_env = DummyVecEnv([make_env(test_df, explore=False)])
     test_env = VecNormalize(test_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
     test_env.obs_rms, test_env.ret_rms = train_env.obs_rms, train_env.ret_rms
     test_env.training = False
