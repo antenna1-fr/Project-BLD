@@ -6,3 +6,4 @@ Outputs/
 # Ignore temporary files
 **/__pycache__/
 venv311/
+/Data/Processed
