@@ -3,9 +3,15 @@ numpy
 matplotlib
 scikit-learn
 xgboost
-gymnasium
-stable-baselines3
 shap
 requests
 packaging
 optuna
+gymnasium
+stable-baselines3
+imitation
+torch
+pyarrow
+tqdm
+tensorboard
+rich

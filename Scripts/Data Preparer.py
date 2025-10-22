@@ -14,9 +14,9 @@ DATA_DIR        = Path(str(config.PROCESSED_DIR))
 DB_PATH         = Path(str(config.DB_PATH))
 OUTPUT_CSV      = Path(str(config.PROCESSED_CSV))
 
-VOLUME_THRESHOLD      = 3000
-MID_PRICE_THRESHOLD   = 20_000
-TOP_LIQUIDITY_ITEMS   = 500   # keep as you logged
+VOLUME_THRESHOLD      = 500
+MID_PRICE_THRESHOLD   = 5_000
+TOP_LIQUIDITY_ITEMS   = 800   # keep as you logged
 
 RET_WINDOWS     = [60, 240, 720, 1440, 2880]
 EMA_SPANS       = [5, 15, 60, 240, 720, 1440, 2880, 5760]
@@ -29,16 +29,16 @@ MAX_WORKERS = max(1, (os.cpu_count() or 2) - 1)   # tune if disk gets saturated
 OB_LEVELS       = 10
 OB_BUCKETS      = (1, 5, 10)
 
-LOOKAHEAD_MIN   = 1440
+LOOKAHEAD_MIN   = 2880
 LOOKAHEAD_MAX   = 1440
 
 # Robust forward-window label config
-ROBUST_FWD_WINDOW = 30        # minutes forward for robust stat (e.g., median over 30)
+ROBUST_FWD_WINDOW = 120        # minutes forward for robust stat (e.g., median over 30)
 ROBUST_Q_UP = 0.50            # 0.50 = median for UP side (e.g., try 0.80 for quantile)
 ROBUST_Q_DN = 0.50            # 0.50 = median for DOWN side (e.g., try 0.20 for quantile)
 
 # --- per-direction robust lookahead/window (new) ---
-LOOKAHEAD_MAX_UP   = 1440   # 1 day
+LOOKAHEAD_MAX_UP   = 2880   # 1 day
 LOOKAHEAD_MAX_DN   = 720    # 12 hours
 ROBUST_FWD_WINDOW_UP = ROBUST_FWD_WINDOW     # reuse 30 by default
 ROBUST_FWD_WINDOW_DN = ROBUST_FWD_WINDOW     # reuse 30 by default
@@ -48,7 +48,7 @@ ROBUST_Q_DN_DIR    = ROBUST_Q_DN             # reuse 0.50 by default
 
 
 # Trim last N minutes per item (avoid unlabeled rows)
-TRIM_MINUTES    = 1440  # set 0 to disable
+TRIM_MINUTES    = 0  # set 0 to disable
 
 SCALER_KIND             = "robust"   # "robust" or "standard"
 ROBUST_QUANTILE_RANGE   = (10, 90)

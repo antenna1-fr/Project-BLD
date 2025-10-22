@@ -7,3 +7,17 @@ Outputs/
 **/__pycache__/
 venv311/
 /Data/Processed
+# python cache
+__pycache__/
+*.pyc
+
+# venv
+.venv/
+venv/
+
+# training runs
+runs/
+checkpoints/
+outputs/**/*.png
+outputs/**/*.csv
+outputs/**/*.ubj

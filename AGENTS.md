@@ -7,12 +7,7 @@ This Agents.md file provides comprehensive guidance for OpenAI Codex and other A
 Project Bazaar Laplace's Demon (BLD) is a quantitative finance project dedicated to profit-maximised trading in the hypixel bazaar. The goal is to analyze signals from previous bazaar market data collection and apply/test it on later data. The analysis method will be machine learning, at least partially Reinforcement Learning trained on a trading simulator. The trading window is flexible, with anything between a day and two weeks being valid for investment. 
 
 ## Project Structure for OpenAI Codex
-- "/Data" : Contains all input data
-    - "/Processed" : Contains processed inputs (Note: Raw is not present due to size constraints)
-- "Model Quality" : Debugging, testing, and evaluation outputs from ML models
-- "Scripts" : Contains all computation scripts, including ML
-- "Outputs" : Predictions returned by ML models
-    - "Trading" : Trading predictions
+
 
 ## Conventions for OpenAI Codex
 - Use Python for all generated code
