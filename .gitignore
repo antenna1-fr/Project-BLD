@@ -21,3 +21,5 @@ checkpoints/
 outputs/**/*.png
 outputs/**/*.csv
 outputs/**/*.ubj
+Outputs/xgb_predictions.csv
+Outputs/xgb_predictions.csv

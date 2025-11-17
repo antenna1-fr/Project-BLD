@@ -18,6 +18,7 @@ XGB_TRADING_DIR = TRADING_DIR / "XGB_trading"
 
 # Default file paths
 DB_PATH = RAW_DIR / "bazaar.db"
+RAW_DB_PATH = DB_PATH  # Alias for consistency with modular code
 PROCESSED_CSV = PROCESSED_DIR / "improved_normalized_labeled.csv"
 PREDICTIONS_CSV = OUTPUTS_DIR / "xgb_predictions.csv"
 XGB_TRADE_LOG_CSV = XGB_TRADING_DIR / "XGB_trade_log.csv"
