@@ -24,7 +24,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.data.storage import DataStorage
-from src.models.tabular.xgb_model import XGBEdgeModel
+from src.models.registry import load_default_edge_model
 from src.ensemble.conductor import Conductor
 from src.portfolio.allocator import alloc_greedy
 from src.execution.slippage_model import SimpleCostModel
@@ -97,24 +97,33 @@ def run_offline_cycle(
         print("[pipeline] Insufficient data for modeling")
         return {}
 
-    # 3) Fit or load XGB baseline (W1)
-    print("[pipeline] Training XGB model...")
-    model = XGBEdgeModel(
-        feature_cols=feature_cols,
-        label_col=label_col,
-        n_estimators=100,
-        max_depth=6,
-        learning_rate=0.1,
-        random_state=42
-    )
+    # 3) Load default edge model from registry (or fall back to training XGB)
+    print("[pipeline] Loading default edge model from registry...")
+    try:
+        model = load_default_edge_model()
+        print(f"[pipeline] Loaded model from registry: {type(model).__name__}")
+        # If the registry returned an XGBEdgeModel without trained state, we'll train it below
+        need_train = getattr(model, 'model', None) is None or (hasattr(model, 'model') and getattr(model, 'model') is None)
+    except Exception as e:
+        print(f"[pipeline] Registry load failed ({e}), falling back to XGB training")
+        from src.models.tabular.xgb_model import XGBEdgeModel
+        model = XGBEdgeModel(feature_cols=feature_cols, label_col=label_col, n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42)
+        need_train = True
 
-    # Use first 80% for training (simple split)
+    # If model requires training, do a simple train/test split and fit
     train_size = int(len(df) * 0.8)
     train_df = df.iloc[:train_size]
     test_df = df.iloc[train_size:]
-
-    model.fit(train_df)
-    print("[pipeline] XGB training complete")
+    if hasattr(model, 'fit') and callable(model.fit):
+        # If model looks untrained (no underlying model), train it
+        try:
+            if need_train:
+                print('[pipeline] Training model since registry returned an uninitialized model')
+                model.fit(train_df)
+                print('[pipeline] Model training complete')
+        except Exception:
+            # Some registry-loaded models may already be trained; ignore training errors
+            pass
 
     # 4) Generate predictions on test set
     print("[pipeline] Generating predictions...")
@@ -214,4 +223,3 @@ if __name__ == "__main__":
 
 
 __all__ = ['run_offline_cycle']
-

@@ -2,6 +2,7 @@
 import os, gc, json, math, sqlite3, sys
 from pathlib import Path
 from typing import List, Tuple
+import duckdb
 import joblib, numpy as np, pandas as pd
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
@@ -12,7 +13,8 @@ import config as config
 # =================== CONFIG ===================
 DATA_DIR        = Path(str(config.PROCESSED_DIR))
 DB_PATH         = Path(str(config.DB_PATH))
-OUTPUT_CSV      = Path(str(config.PROCESSED_CSV))
+OUTPUT_DATASET  = Path(str(config.PROCESSED_DATA_PATH))
+OUTPUT_PARQUET  = Path(str(config.PROCESSED_PARQUET))
 
 VOLUME_THRESHOLD      = 500
 MID_PRICE_THRESHOLD   = 5_000
@@ -591,7 +593,7 @@ def _pass1_build_item(item: str,
 
 def _pass2_scale_item(args) -> tuple[str, int]:
     """
-    Worker: read per-item parquet -> scale -> write per-item CSV shard.
+    Worker: read per-item parquet -> scale -> write per-item Parquet shard.
     Returns (item, n_rows).
     """
     item, scaler_path, feature_schema_cols, to_scale, passthrough = args
@@ -612,10 +614,10 @@ def _pass2_scale_item(args) -> tuple[str, int]:
     out = pd.concat([df[passthrough].reset_index(drop=True),
                      df_scaled.reset_index(drop=True)], axis=1)
 
-    shard_dir = TMP_DIR / "s2_csv"
+    shard_dir = TMP_DIR / "s2_parquet"
     shard_dir.mkdir(parents=True, exist_ok=True)
-    shard_path = shard_dir / f"{item}.csv"
-    out.to_csv(shard_path, index=False)
+    shard_path = shard_dir / f"{item}.parquet"
+    out.to_parquet(shard_path, index=False, compression="zstd")
     return (item, int(len(out)))
 
 # ---- Safety defaults for row-gating knobs (prevents NameError) ----
@@ -624,21 +626,22 @@ if 'POSTHOC_TRADABLE_MIN'  not in globals(): POSTHOC_TRADABLE_MIN  = 0.60
 if 'POSTHOC_MIN_ITEM_ROWS' not in globals(): POSTHOC_MIN_ITEM_ROWS = 5000
 
 # =================== MAIN ===================
-def run_full_pipeline(raw_db: Path | str = None, output_csv: Path | str = None) -> None:
+def run_full_pipeline(raw_db: Path | str = None, output_path: Path | str = None) -> None:
     """
     Orchestrates PASS-1, scaler fit, PASS-2, and final concatenation.
     This is factored out so src/features/data_preparer.py can call it.
 
     Args:
         raw_db: Path to raw database (defaults to DB_PATH from config)
-        output_csv: Path for output CSV (defaults to OUTPUT_CSV from config)
+        output_path: Path for output dataset (defaults to OUTPUT_PARQUET from config)
     """
     # Allow override of paths
-    global DB_PATH, OUTPUT_CSV
+    global DB_PATH, OUTPUT_DATASET, OUTPUT_PARQUET
     if raw_db is not None:
         DB_PATH = Path(raw_db)
-    if output_csv is not None:
-        OUTPUT_CSV = Path(output_csv)
+    if output_path is not None:
+        OUTPUT_DATASET = Path(output_path)
+        OUTPUT_PARQUET = Path(output_path)
 
 def main():
     np.random.seed(RANDOM_SEED)
@@ -773,26 +776,36 @@ def main():
             if scaled_count % 20 == 0 or scaled_count == len(args_list):
                 print(f"[pass2] {scaled_count}/{len(args_list)} scaled")
 
-    # ===== Final concat (single writer) =====
-    shard_dir = TMP_DIR / "s2_csv"
-    shards = sorted(shard_dir.glob("*.csv"))
+    # ===== Final concat (DuckDB writer) =====
+    shard_dir = TMP_DIR / "s2_parquet"
+    shards = sorted(shard_dir.glob("*.parquet"))
     if not shards:
         raise RuntimeError("No PASS-2 shards to write.")
-    header_written = False
-    run_full_pipeline()
-    with open(OUTPUT_CSV, "w", newline="") as fout:
-        for i, sp in enumerate(shards, 1):
-            with open(sp, "r", newline="") as fin:
-                if header_written:
-                    next(fin)  # skip header
-                for line in fin:
-                    fout.write(line)
-            if not header_written:
-                header_written = True
-            if i % 50 == 0 or i == len(shards):
-                print(f"[finalize] {i}/{len(shards)} shards → {OUTPUT_CSV.name}")
 
-    print("[done] CSV + scaler + meta ready.")
+    output_path = OUTPUT_DATASET if OUTPUT_DATASET.suffix == ".parquet" else OUTPUT_DATASET.with_suffix(".parquet")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
+
+    cols_sql = ", ".join(duckdb.escape_identifier(c) for c in feature_schema_cols) if feature_schema_cols else "*"
+    shard_list_sql = ", ".join(f"'{p.as_posix().replace(\"'\", \"''\")}'" for p in shards)
+
+    con_final = duckdb.connect(database=":memory:")
+    try:
+        con_final.execute(
+            f"""
+            COPY (
+              SELECT {cols_sql}
+              FROM read_parquet([{shard_list_sql}])
+            ) TO '{output_path.as_posix()}'
+            (FORMAT 'parquet', COMPRESSION 'zstd');
+            """
+        )
+    finally:
+        con_final.close()
+
+    print(f"[finalize] Wrote {len(shards)} shards -> {output_path.name}")
+    print("[done] Parquet + scaler + meta ready.")
 
 
 if __name__ == "__main__":

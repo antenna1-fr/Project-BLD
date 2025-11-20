@@ -19,7 +19,9 @@ XGB_TRADING_DIR = TRADING_DIR / "XGB_trading"
 # Default file paths
 DB_PATH = RAW_DIR / "bazaar.db"
 RAW_DB_PATH = DB_PATH  # Alias for consistency with modular code
-PROCESSED_CSV = PROCESSED_DIR / "improved_normalized_labeled.csv"
+PROCESSED_PARQUET = PROCESSED_DIR / "improved_normalized_labeled.parquet"
+PROCESSED_CSV = PROCESSED_DIR / "improved_normalized_labeled.csv"  # Legacy/compat
+PROCESSED_DATA_PATH = PROCESSED_PARQUET  # Canonical processed dataset
 PREDICTIONS_CSV = OUTPUTS_DIR / "xgb_predictions.csv"
 XGB_TRADE_LOG_CSV = XGB_TRADING_DIR / "XGB_trade_log.csv"
 XGB_CONFUSION_MATRIX_PLOT = MODEL_QUALITY_DIR / "xgb_confusion_matrix_xgbcv.png"
@@ -61,4 +63,3 @@ def project_path(*parts: str) -> Path:
     Example: project_path("Outputs", "new.csv")
     """
     return BASE_DIR.joinpath(*parts)
-

@@ -56,3 +56,5 @@ class Paths:
     ckpt_out: str = "checkpoints/bazaar_encoder.pt"
     id_map_json: str = "data/item2id.json"
     embeddings_out: str = "data/embeddings_12h_latent128.parquet"
+
+
