@@ -101,4 +101,6 @@ def run_full_pipeline(raw_db: Path | str = None, output_path: Path | str = None)
 
 # Re-export key functions for convenience
 __all__ = ['build_full_processed_dataset', 'run_full_pipeline']
-
+if __name__ == "__main__":
+    # CLI entrypoint: uses config defaults
+    run_full_pipeline()

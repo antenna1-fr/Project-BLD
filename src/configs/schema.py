@@ -1,4 +1,3 @@
-# src/configs/schema.py
 """
 Canonical schema definitions for the dataset.
 
@@ -40,6 +39,12 @@ TARGET_MAX_REL = "target_max_rel"
 TARGET_Q_UP_REL = "target_q_up_rel"
 TARGET_Q_DN_REL = "target_q_dn_rel"
 
+# Execution-aware regression labels (from execution-aware data preparer v2)
+Y_LONG_BEST      = "y_long_best"
+Y_LONG_DRAWDOWN  = "y_long_drawdown"
+Y_SHORT_BEST     = "y_short_best"
+Y_SHORT_DRAWUP   = "y_short_drawup"
+
 # Derived label (if present)
 LABEL_COL = "label"  # Encoded label: -1 -> 0, 0 -> 1, 1 -> 2
 
@@ -56,6 +61,11 @@ PASSTHROUGH_BASE: Set[str] = {
     TARGET_MAX_ABS,
     TARGET_MIN_REL,
     TARGET_MAX_REL,
+    # Execution-aware labels must never be used as features
+    Y_LONG_BEST,
+    Y_LONG_DRAWDOWN,
+    Y_SHORT_BEST,
+    Y_SHORT_DRAWUP,
 }
 """Base set of columns that are metadata and should never be features."""
 
@@ -134,6 +144,10 @@ __all__ = [
     'TARGET_MAX_REL',
     'TARGET_Q_UP_REL',
     'TARGET_Q_DN_REL',
+    'Y_LONG_BEST',
+    'Y_LONG_DRAWDOWN',
+    'Y_SHORT_BEST',
+    'Y_SHORT_DRAWUP',
     'LABEL_COL',
     'PASSTHROUGH_BASE',
     'LEAK_PREFIXES',
@@ -148,4 +162,3 @@ __all__ = [
     'LABEL_MAP',
     'LABEL_INV',
 ]
-
